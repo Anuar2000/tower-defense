@@ -1,0 +1,73 @@
+# v* тегі жіберілгенде ойынды Windows, macOS, Linux үшін жинап, Release-ке zip етіп салады
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-22.04
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux пакеттері
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y xorg-dev libgl1-mesa-dev
+
+      - name: Windows жинау
+        if: matrix.name == 'windows'
+        run: |
+          cmake -B build
+          cmake --build build --config Release
+          mkdir TowerDefense
+          cp build/bin/Release/game.exe TowerDefense/
+          Copy-Item -Recurse build/bin/Release/assets TowerDefense/
+          Compress-Archive TowerDefense TowerDefense-windows.zip
+
+      # Apple Silicon және Intel үшін бір файл (universal)
+      - name: macOS жинау
+        if: matrix.name == 'macos'
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
+          cmake --build build -j
+          codesign --force -s - build/bin/game
+          mkdir TowerDefense
+          cp build/bin/game TowerDefense/
+          cp -r build/bin/assets TowerDefense/
+          zip -r TowerDefense-macos.zip TowerDefense
+
+      - name: Linux жинау
+        if: matrix.name == 'linux'
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+          mkdir TowerDefense
+          cp build/bin/game TowerDefense/
+          cp -r build/bin/assets TowerDefense/
+          zip -r TowerDefense-linux.zip TowerDefense
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TowerDefense-${{ matrix.name }}
+          path: TowerDefense-${{ matrix.name }}.zip
+
+      - name: Release-ке салу
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TowerDefense-${{ matrix.name }}.zip
